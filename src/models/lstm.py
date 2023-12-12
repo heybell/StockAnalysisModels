@@ -5,7 +5,6 @@ class LSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1):
         super(LSTM, self).__init__()
 
-
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
 

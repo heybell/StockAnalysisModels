@@ -1,13 +1,15 @@
 import torch.nn as nn
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_layers=1):
+    # 20231212 : num_layers=2, dropout=0.5 추가
+    def __init__(self, input_size, hidden_size, output_size, num_layers=2):
         super(RNN, self).__init__()
 
         self.rnn = nn.RNN(input_size=input_size,
                           hidden_size=hidden_size,
                           num_layers=num_layers,
-                          batch_first=True)
+                          batch_first=True,
+                          dropout=0.5)
 
         # fully-connected layer
         self.fc = nn.Linear(in_features=hidden_size,
@@ -16,13 +18,8 @@ class RNN(nn.Module):
     def forward(self, x, hidden):
         batch_size = x.size(0)
 
-        # get RNN outputs
         r_out, hidden = self.rnn(x, hidden)
-
-        # shape output to the linear layer (batch_size, seq_length*hidden_dim)
         r_out = r_out.contiguous().view(batch_size,-1)
-
-        # get final output
         output = self.fc(r_out)
 
         return output, hidden

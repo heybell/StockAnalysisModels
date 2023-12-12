@@ -7,9 +7,9 @@ from sklearn.preprocessing import MinMaxScaler
 # 분기별 주가 데이터 가져오기 : yfinance
 def load_stock_data(ticker, start_date, end_date):
     daily_data = yf.download(ticker, start=start_date, end=end_date)
-    quarterly_data = daily_data.resample('Q').last()
+    # quarterly_data = daily_data.resample('Q').last()
 
-    return quarterly_data
+    return daily_data
 
 # 분기별 지수 데이터 가져오기 : csv 파일
 def load_index_data(file_path):

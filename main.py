@@ -2,104 +2,52 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from matplotlib import pyplot as plt
-from sklearn.metrics import mean_squared_error
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
 from torch import FloatTensor
 
-from src.models.lstm import LSTM
-from src.models.mlp import MLP
-from src.models.rnn import RNN
-from src.utils import get_device
+from src.early_stopping import EarlyStopping
+from src.utils import get_device, get_model
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
-from src.models.linear_regression import LinearRegression
 from src.data_manager import load_stock_data, scale_min_max
-from src.visualization import plot_scatter, plot_loss_and_accuracy
-
-# Decision Tree 모델 인스턴스 생성 및 학습
-def decision_tree(X_train, y_train):
-    model = DecisionTreeRegressor(max_depth=3)
-    model.fit(X_train, y_train)
-
-    return model
-
-# Random Forest 모델 인스턴스 생성 및 학습
-def random_forest(X_train, y_train):
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-
-    return model
-
-# 모델 테스트 및 예측
-def test_and_predict(model, X_test, y_test):
-    # 테스트 데이터에 대한 예측
-    predictions = model.predict(X_test)
-
-    # 모델 평가
-    mse = mean_squared_error(y_test, predictions)
-    print(f'Mean Squared Error: {mse}')
-
-    return predictions
-
-
 
 def main():
-    #
-    symbol = '005930.KS'
-    start_date = '2011-01-01'
+    feature_cols = ['Open', 'High', 'Low']
+    label_cols = ['Close']
+
+    early_stop_patience = 1000
+
+    input_size = len(feature_cols)
+    hidden_size = 16
+    output_size = 1
+
+    symbol = '034220.KS'
+    start_date = '2010-01-01'
     end_date = '2021-12-31'
 
-    # 하이퍼파라미터
-    batch_size = 15
-    lr = 0.01
+    batch_size = 16
+    lr = 0.0001
     epochs = 1000
     device = get_device()
 
-    feature_cols = ['Open', 'High', 'Low', 'Volume']
-    label_cols = ['Close']
+    model_params = {
+        'input_size' : input_size,
+        'hidden_size' : hidden_size,
+        'output_size' : output_size
+    }
 
-    # 주가 데이터 정규화
-    X = load_stock_data(symbol, '2010-01-01', '2020-12-31')
-    X = scale_min_max(X[feature_cols].values)
-    
-    # 종가 데이터 정규화
-    y = load_stock_data(symbol, start_date, end_date)
-    y = scale_min_max(y[label_cols].values.reshape(-1, 1))
+    stock_data = load_stock_data(symbol, start_date, end_date)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)
+    # 데이터 정규화
+    X = scale_min_max(stock_data[feature_cols].values)
+    y = scale_min_max(stock_data[label_cols].values.reshape(-1, 1))
 
-    # Decision Tree 모델 학습
-    model = decision_tree(X_train, y_train)
-    # model = random_forest(X_train, y_train)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, shuffle=False)
 
-    # 테스트 및 예측
-    predictions = test_and_predict(model, X_test, y_test)
+    model = get_model('rnn', model_params)
 
-    # 다음날 주가 예측
-    last_data = X_test[-1].reshape(1, -1)
-    next_day_prediction = model.predict(last_data)
-    print(f'다음날 주가 예측: {next_day_prediction}')
-
-    # 시각화: 실제 vs. 예측 (선 그래프)
-    plt.figure(figsize=(10, 6))
-    plt.plot(y_test, label='Actual Values', marker='o')
-    plt.plot(predictions, label='Predicted Values', marker='o')
-    plt.xlabel('Data Point')
-    plt.ylabel('Value')
-    plt.title('Actual vs. Predicted Values')
-    plt.legend()
-    plt.show()
-
-    # 모델 인스턴스 생성
-    # model = LinearRegression(input_size=len(feature_cols), output_size=1)
-    # model = MLP(input_size=len(feature_cols), hidden_size=32, output_size=1)
-    # model = RNN(input_size=len(feature_cols), hidden_size=512, output_size=1)
-    # model = LSTM(input_dim=1, hidden_dim=32, output_dim=1)
-
-    # criterion = nn.MSELoss()
-    # optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    early_stop = EarlyStopping(patience=early_stop_patience)
 
     train_dataset = TensorDataset(FloatTensor(X_train), FloatTensor(y_train))
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
@@ -107,26 +55,18 @@ def main():
     test_dataset = TensorDataset(FloatTensor(X_test), FloatTensor(y_test))
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
-    model = decision_tree(X_train, y_train)
-    y_pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    print(f'Mean Squared Error on Test Data: {mse}')
+    # hidden : 입력 데이터의 시간적 의존성을 캡처, 이를 통해 RNN은 이전 시간 단계의 컨텍스트를 기반으로 예측을 수행
+    hidden = None
 
-
-
-    '''
-    hidden = None  # initial hidden
-    for epoch in range(30):  ## run the model for 30 epochs
+    for epoch in range(epochs):
         train_loss = []
 
         for data, target in train_dataloader:
 
-            if data.shape[0] != batch_size:  # to verify if the batch no is 256 or not
-                # print('Batch Size Validation- Input shape Issue:',format(data.shape))
+            if data.shape[0] != batch_size:
                 continue
             else:
                 optimizer.zero_grad()
-                ## 1. forward propagation
                 prediction, hidden = model(data, hidden)
 
                 target = target.view(-1)
@@ -134,16 +74,34 @@ def main():
                 hidden = hidden.data
                 batch_size = data.shape[0]
 
-                loss = criterion(prediction.squeeze(), target)  # squeeze (256,1) -> (256) - to match target shape
+                loss = criterion(prediction.squeeze(), target)
 
                 loss.backward()
-
                 optimizer.step()
-
                 train_loss.append(loss.item())
 
         print("Epoch:", epoch, "Training Loss: ", np.mean(train_loss))
-    '''
+
+        # early_stopping 추가
+        EARLY_STOP = early_stop(loss)
+
+        if EARLY_STOP:
+            break
+
+    # 예측
+    future_steps = 255
+
+    last_seq = torch.tensor(X_test[-batch_size:], dtype=torch.float32)
+    pred_list = []
+
+    model.eval()
+    with torch.no_grad():
+        for i in range(future_steps):
+            prediction, hidden = model(last_seq, hidden)
+            pred_list.append(prediction.numpy())
+
+            # 예측 값을 다음 시퀀스에 추가 : pred shape은 [8, 1]인데... 이걸 cat 하려하다니 어휴...😣
+            # last_seq = torch.cat([last_seq, prediction], dim=0)
 
 if __name__ == "__main__":
-    main()
+     main()
